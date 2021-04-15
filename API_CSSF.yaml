@@ -1,0 +1,268 @@
+openapi: 3.0.3
+info:
+  version: 1.0.1
+  title: API de registre des comptes et coffres-forts de la CSSF
+  description: Il permet à la CSSF d'être notifiée par une entité surveillée de la finalisation d'un fichier du registre. La CSSF devra récupérer ce fichier dans un court délai par une API fournie par l'entité en question.
+servers:
+  - url: https://api.apps.cssf.lu/accounts-safes-registry/v1
+    description: "Production server"
+
+paths:
+
+    "/ping":
+      get:
+        summary: API Healthcheck
+        operationId: ping
+        responses:
+          '200':
+            description: OK
+
+  "/keys":
+    get:
+      security:
+        - oAuth2Password: []
+      summary: Permet aux entités de récupérer les clés publiques de la CSSF
+      description: Permet de récupérer la clé RSA publique, la clé PGP publique et la CA de la CSSF.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CSSFKeys'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  "/enroll":
+    post:
+      summary: Permet aux entités de s'enregistrer sur l'API publique CSSF.
+      description: Doit être appelée par l'entité pour pouvoir s'enregistrer sur l'API publique CSSF.
+        Cet appel ne peut se faire par l'entité qu'une fois ses clés RSA publique et privée recues ainsi que le mot de passe de cette dernière via MFT.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollData'
+      responses:
+        '201':
+          description: Entity successfully registered on CSSF's API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollResponse'
+
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  "/enroll/reset":
+    post:
+      security:
+        - oAuth2Password: []
+      summary: Réinitialise l'enrôlement de l'entité auprès de la CSSF.
+      description: "En cas de succès, les informations suivantes seront invalidées dans les systèmes de ls CSSF:
+                    <ul>
+                      <li>Les clés RSA de l'entité</li>
+                      <li>Les clés PGP publiques de l'entité</li>
+                      <li>Le reset token est invalidé
+                      <li>Le mot de passe du professionnel sur l'API CSSF</li>
+                    </ul>
+                    /enroll/reset n'est plus apellable. L'entité doit refaire un /enroll"
+
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetToken'
+
+      responses:
+        '200':
+          description: Enroll reset request accepted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  "/enroll/status":
+    get:
+      summary: Permet aux entités de savoir leurs status d'enrollement.
+      description: Doit être appelée par l'entité pour pouvoir connaître le status de son enrollement.
+      responses:
+        '200':
+          description: Entity successfully registered on CSSF's API
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollStatusResponse'
+
+  "/notify":
+    post:
+      security:
+        - oAuth2Password: []
+      summary: Notifies the CSSF of the provision of a register file by the entity.
+      description: Should be called by the entity as soon as it has finished preparing the registry file. Must be called at least once a day, as stipulated in the article of law.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotifyIn'
+      responses:
+        '200':
+          description: Notification received.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+
+    NotifyIn:
+      type: object
+      properties:
+        fileID:
+          type: string
+        nonce:
+          type: string
+          format: uuid
+          description: Jeton de récupération de fichier à usage unique.
+
+    ResetToken:
+      type: object
+      properties:
+        resetToken:
+          type: string
+          format: uuid
+
+    CSSFKeys:
+      type: object
+      properties:
+        cssfPgpPubSigningKey:
+          type: string
+          description: CSSF's signing public PGP key
+        cssfPgpPubCipherKey:
+          type: string
+          description: CSSF's ciphering public PGP key
+      required:
+        - cssfPgpPubSigningKey
+        - cssfPgpPubCipherKey
+
+    Error:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      required:
+        - code
+        - message
+
+    # Schema for enrollment post body
+    EnrollData:
+      type: object
+      properties:
+        apiBaseUrl:
+          type: string
+          description: URL de l'API de l'entité
+        entityPgpPubSigningKey:
+          type: string
+          description: Clé publique PGP de signature de l'entité
+        entityPgpPubCipherKey:
+          type: string
+          description: Clé publique PGP de chiffrement de l'entité
+        ipV4Addresses:
+          type: array
+          items:
+            type: string
+      required:
+        - apiBaseUrl
+        - entityPgpPubSigningKey
+        - entityPgpPubCipherKey
+        - ipV4Addresses
+
+    EnrollResponse:
+      type: object
+      properties:
+        resetToken:
+          type: string
+          format: uuid
+          description: Token de reset de l'enrollement du professionnel sur l'API CSSF.
+
+    EnrollStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          description: status d'enrollement ou reset.
+        details:
+          type: string
+          description: details pour expliquer la raison d'un enrollement échoué. en cas d'un enrollement sans problème ou un reset complet.
+        errorDetails:
+          type: object
+          description: Detail d'un ping de l'entité échoué.
+          properties:
+            code:
+              type: string
+              description: le code de la reponse eue de l'entité lors du contact de l'entité (ping ou envoi de mot de passe) echoué.
+            message:
+              type: string
+              description: detail de l'erreur en réponse eue de l'entité.
+
+  securitySchemes:
+
+    oAuth2Password:
+      type: oauth2
+      flows:
+        password:
+          tokenUrl: https://api.apps.cssf.lu/auth/realms/r-apicssf/protocol/openid-connect/token
+          scopes: {}
+
+
+
+#    OpenId:
+#      type: openIdConnect
+#      openIdConnectUrl: https://api.apps.cssf.lu/auth/realms/r-apicssf/protocol/openid-connect/
+#      flows:
+#        password:
+#          tokenUrl: https://api.apps.cssf.lu/auth/realms/r-apicssf/protocol/openid-connect/token
+
